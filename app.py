@@ -71,10 +71,15 @@ with tab1:
                 start_date = end_date - timedelta(days=years*365)
                 
                 # 데이터 다운로드
-                stock_data = qs.utils.download_returns(ticker, period=f"{years}y")
+                # 캐싱을 사용하여 성능 향상 및 반복 호출 방지
+                @st.cache_data(ttl=3600)
+                def get_data(ticker, period):
+                    return qs.utils.download_returns(ticker, period=period)
+
+                stock_data = get_data(ticker, period=f"{years}y")
                 
                 if benchmark:
-                    bench_data = qs.utils.download_returns(benchmark, period=f"{years}y")
+                    bench_data = get_data(benchmark, period=f"{years}y")
                 else:
                     bench_data = None
 
@@ -86,19 +91,22 @@ with tab1:
                     
                     col1, col2, col3, col4 = st.columns(4)
                     
-                    cagr = qs.stats.cagr(stock_data)
-                    sharpe = qs.stats.sharpe(stock_data)
-                    mdd = qs.stats.max_drawdown(stock_data)
-                    volatility = qs.stats.volatility(stock_data)
-                    
-                    with col1:
-                        st.metric("연평균 수익률 (CAGR)", f"{cagr*100:.2f}%", help="매년 평균적으로 성장한 비율")
-                    with col2:
-                        st.metric("샤프 지수 (Sharpe)", f"{sharpe:.2f}", help="위험 대비 수익률 (높을수록 좋음)")
-                    with col3:
-                        st.metric("최대 낙폭 (MDD)", f"{mdd*100:.2f}%", help="고점 대비 최대 하락률 (0에 가까울수록 좋음)")
-                    with col4:
-                        st.metric("연간 변동성", f"{volatility*100:.2f}%", help="주가의 출렁임 정도")
+                    try:
+                        cagr = qs.stats.cagr(stock_data)
+                        sharpe = qs.stats.sharpe(stock_data)
+                        mdd = qs.stats.max_drawdown(stock_data)
+                        volatility = qs.stats.volatility(stock_data)
+                        
+                        with col1:
+                            st.metric("연평균 수익률 (CAGR)", f"{cagr*100:.2f}%", help="매년 평균적으로 성장한 비율")
+                        with col2:
+                            st.metric("샤프 지수 (Sharpe)", f"{sharpe:.2f}", help="위험 대비 수익률 (높을수록 좋음)")
+                        with col3:
+                            st.metric("최대 낙폭 (MDD)", f"{mdd*100:.2f}%", help="고점 대비 최대 하락률 (0에 가까울수록 좋음)")
+                        with col4:
+                            st.metric("연간 변동성", f"{volatility*100:.2f}%", help="주가의 출렁임 정도")
+                    except Exception as e:
+                        st.warning(f"지표 계산 중 일부 오류가 발생했습니다: {e}")
                     
                     st.markdown("---")
                     
@@ -107,20 +115,26 @@ with tab1:
                     st.info("아래 보고서는 QuantStats 라이브러리를 통해 생성된 상세 분석 결과입니다. 용어가 어렵다면 '지표 용어 가이드' 탭을 참고하세요.")
                     
                     report_path = "report.html"
-                    qs.reports.html(stock_data, benchmark=bench_data, output=report_path, title=f"{ticker} vs {benchmark}" if benchmark else f"{ticker} Analysis", download_filename=report_path)
                     
-                    with open(report_path, 'r', encoding='utf-8') as f:
-                        html_content = f.read()
-                    
-                    components.html(html_content, height=1000, scrolling=True)
-                    
-                    with open(report_path, 'rb') as f:
-                        st.download_button(
-                            label="📥 보고서 다운로드 (HTML)",
-                            data=f,
-                            file_name=f"{ticker}_quantstats_report.html",
-                            mime="text/html"
-                        )
+                    # 리포트 생성 시 오류 처리
+                    try:
+                        qs.reports.html(stock_data, benchmark=bench_data, output=report_path, title=f"{ticker} vs {benchmark}" if benchmark else f"{ticker} Analysis", download_filename=report_path)
+                        
+                        with open(report_path, 'r', encoding='utf-8') as f:
+                            html_content = f.read()
+                        
+                        components.html(html_content, height=1000, scrolling=True)
+                        
+                        with open(report_path, 'rb') as f:
+                            st.download_button(
+                                label="📥 보고서 다운로드 (HTML)",
+                                data=f,
+                                file_name=f"{ticker}_quantstats_report.html",
+                                mime="text/html"
+                            )
+                    except Exception as e:
+                        st.error(f"리포트 생성 중 오류가 발생했습니다: {e}")
+                        st.warning("데이터가 부족하거나 형식이 맞지 않을 수 있습니다.")
 
         except Exception as e:
             st.error(f"분석 중 오류가 발생했습니다: {str(e)}")
